@@ -6,9 +6,13 @@ import android.graphics.BitmapFactory;
 import android.os.Bundle;
 
 import com.sina.weibo.sdk.api.WebpageObject;
+import com.sina.weibo.sdk.api.ImageObject;
+import com.sina.weibo.sdk.api.TextObject;
 import com.sina.weibo.sdk.api.WeiboMessage;
+import com.sina.weibo.sdk.api.WeiboMultiMessage;
 import com.sina.weibo.sdk.api.share.IWeiboShareAPI;
 import com.sina.weibo.sdk.api.share.SendMessageToWeiboRequest;
+import com.sina.weibo.sdk.api.share.SendMultiMessageToWeiboRequest;
 import com.sina.weibo.sdk.api.share.WeiboShareSDK;
 import com.sina.weibo.sdk.auth.AuthInfo;
 import com.sina.weibo.sdk.auth.Oauth2AccessToken;
@@ -252,33 +256,98 @@ public class YCWeibo extends CordovaPlugin {
         return mediaObject;
     }
 
+    private ImageObject getImageObj(JSONObject params) throws JSONException {
+        ImageObject mediaObject = new ImageObject();
+        if (params.optString("image", "") != null
+                && !params.optString("image", "").equalsIgnoreCase("")) {
+            try {
+                if (params.optString("image", "").startsWith("http://")
+                        || params.optString("image", "").startsWith("https://")) {
+                    Bitmap thumb = BitmapFactory.decodeStream(new URL(params
+                            .optString("image")).openConnection()
+                            .getInputStream());
+                    mediaObject.setImageObject(thumb);
+                } else {
+                    currentCallbackContext.error(ERROR_IMAGE_URL);
+                }
+
+            } catch (MalformedURLException e) {
+                // TODO Auto-generated catch block
+                e.printStackTrace();
+            } catch (IOException e) {
+                // TODO Auto-generated catch block
+                e.printStackTrace();
+            }
+            return mediaObject;
+        } else {
+            return null;
+        }
+    }
+
+    private TextObject getTextObj(JSONObject params) throws JSONException {
+        TextObject mediaObject = new TextObject();
+        if (params.getString("defaultText") != null
+                && !params.getString("defaultText").equalsIgnoreCase("")) {
+            mediaObject.text = params.getString("defaultText");
+            return mediaObject;
+        } else {
+            return null;
+        }
+    }
+
     /**
      * 发送微博单条消息请求
      *
      * @param params
      */
     private void sendSingleMessage(JSONObject params) {
-        WeiboMessage weiboMessage = new WeiboMessage();
         try {
-            weiboMessage.mediaObject = getWebpageObj(params);
+            String type = "webpage";
+            if (params.optString("type", "") != null
+                    && !params.optString("type", "").equalsIgnoreCase("")) {
+                type = params.optString("type", "");
+            }
+            ImageObject imageObject = getImageObj(params);
+            WebpageObject  webpageObject = getWebpageObj(params);
+            TextObject textObject = getTextObj(params);
+            WeiboMessage weiboMessage = new WeiboMessage();
+            weiboMessage.mediaObject = webpageObject;
+            SendMessageToWeiboRequest request = new SendMessageToWeiboRequest();
+            request.transaction = String.valueOf(System.currentTimeMillis());
+            request.message = weiboMessage;
+            if (mWeiboShareAPI.isWeiboAppInstalled()) {
+                if (mWeiboShareAPI.isWeiboAppSupportAPI()) {
+                    int supportApi = mWeiboShareAPI.getWeiboAppSupportAPI();
+                    if (supportApi >= 10351) {
+                        WeiboMultiMessage mweiboMessage = new WeiboMultiMessage();
+                        mweiboMessage.textObject = textObject;
+                        mweiboMessage.imageObject = imageObject;
+                        mweiboMessage.mediaObject = webpageObject;
+                        SendMultiMessageToWeiboRequest req = new SendMultiMessageToWeiboRequest();
+                        req.transaction = String.valueOf(System.currentTimeMillis());
+                        req.multiMessage = mweiboMessage;
+                        mWeiboShareAPI.sendRequest(this.cordova.getActivity(), req);
+                    } else {
+                        if (type == "image") {
+                            weiboMessage.mediaObject = imageObject;
+                        } else if (type == "text") {
+                            weiboMessage.mediaObject = textObject;
+                        } else {
+                            weiboMessage.mediaObject = webpageObject;
+                        }
+                        mWeiboShareAPI.sendRequest(this.cordova.getActivity(), request);
+                    }
+                } else {
+                    currentCallbackContext.error(UNKONW_ERROR);
+                }
+            } else {
+                sendSingleMsgWithOutClient(request);
+            }
         } catch (JSONException e) {
             // TODO Auto-generated catch block
             e.printStackTrace();
         }
-        SendMessageToWeiboRequest request = new SendMessageToWeiboRequest();
-        request.transaction = String.valueOf(System.currentTimeMillis());
-        request.message = weiboMessage;
-        if (mWeiboShareAPI.isWeiboAppInstalled()) {
-            if (mWeiboShareAPI.isWeiboAppSupportAPI()) {
-                mWeiboShareAPI.sendRequest(this.cordova.getActivity(), request);
-            } else {
-                currentCallbackContext.error(UNKONW_ERROR);
-            }
-        } else {
-            sendSingleMsgWithOutClient(request);
-        }
     }
-
     /**
      * 在没有客户端的情况下分享消息到微博
      *
